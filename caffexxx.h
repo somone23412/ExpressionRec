@@ -46,6 +46,7 @@ namespace bp = boost::python;
 #include <caffe/layers/deconv_layer.hpp>
 #include <caffe/layers/tanh_layer.hpp>
 #include <caffe/layers/depthwise_conv_layer.hpp>
+#include <caffe/layers/slice_layer.hpp>
 
 //#include "prelu_layer.h"
 
@@ -74,6 +75,8 @@ namespace caffe
 	extern INSTANTIATE_CLASS(DeconvolutionLayer);
 	extern INSTANTIATE_CLASS(TanHLayer);
 	REGISTER_LAYER_CLASS(TanH);
+	extern INSTANTIATE_CLASS(SliceLayer);
+	//REGISTER_LAYER_CLASS(Slice);
 	extern INSTANTIATE_CLASS(DepthwiseConvolutionLayer);
 	//REGISTER_LAYER_CLASS(DepthwiseConvolution);
 	//extern INSTANTIATE_CLASS(ReshapeLayer);

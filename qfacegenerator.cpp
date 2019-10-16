@@ -24,6 +24,9 @@
 //Time test
 #include <time.h>
 
+//File io
+#include <io.h>
+
 cv::Mat calcDiff(cv::Mat inputImg, cv::Mat biResizeImg){
 	cv::Mat diffImg = cv::Mat::zeros(128, 128, CV_8UC3);
 	for (int h = 0; h < 128; h++) {
@@ -48,17 +51,47 @@ cv::Mat calcAbsDiff(cv::Mat inputImg, cv::Mat biResizeImg){
 	return absDiffImg;
 }
 
+void getFiles(std::string path, std::vector<std::string>& files, std::vector<std::string>& filesname)
+{
+	//文件句柄  
+	//long hFile = 0;  //win7
+	intptr_t hFile = 0;   //win10
+	//文件信息  
+	struct _finddata_t fileinfo;
+	std::string p;
+	if ((hFile = _findfirst(p.assign(path).append("/*").c_str(), &fileinfo)) != -1)
+		// "\\*"是指读取文件夹下的所有类型的文件，若想读取特定类型的文件，以png为例，则用“\\*.png”
+	{
+		do
+		{
+			//如果是目录,迭代之  
+			//如果不是,加入列表  
+			if ((fileinfo.attrib &  _A_SUBDIR))
+			{
+				if (strcmp(fileinfo.name, ".") != 0 && strcmp(fileinfo.name, "..") != 0)
+					getFiles(p.assign(path).append("/").append(fileinfo.name), files, filesname);
+			}
+			else
+			{
+				files.push_back(path + "/" + fileinfo.name);
+				filesname.push_back(fileinfo.name);
+			}
+		} while (_findnext(hFile, &fileinfo) == 0);
+		_findclose(hFile);
+	}
+}
+
 QFaceGenerator::QFaceGenerator(QWidget *parent)
 	: QMainWindow(parent)
 {
 	ui.setupUi(this);
 	//choose model, 0 = VGGNet, 1 = mobileNet
-	int choose_model = 1;
+	int choose_model = 2;
 	std::string model_iters = "";
 
 	//img to test
 	std::string test_img_path = "faceimg/expression_test/";
-	std::string test_result_path = "faceimg/expression_result";
+	std::string test_result_path = "faceimg/expression_test_images_result/";
 	std::vector<std::string> test_img_list = {
 		"2019-09-09-154916.jpg",
 		"2019-09-09-154928.jpg",
@@ -68,15 +101,39 @@ QFaceGenerator::QFaceGenerator(QWidget *parent)
 		"2019-09-09-155106.jpg",
 		"2019-09-09-155121.jpg",
 		"2019-09-09-155212.jpg",
+		//"test_0066.jpg",
+		//"test_0093.jpg",
+		//"test_0125.jpg",
+		//"test_0160.jpg",
+		//"test_0195.jpg",
+		//"test_0201.jpg",
+		//"test_0209.jpg",
+		//"test_0233.jpg",
+		//"test_0283.jpg",
+		//"test_0294.jpg",
+		//"test_0538.jpg",
 	};
 
+	std::vector<std::vector<std::string>> filesname;
+	for (int i = 0; i < 7; i++) {
+		std::vector <std::string> f;
+		std::vector <std::string> fn;
+		getFiles(test_img_path + std::to_string(i), f, fn);
+		filesname.push_back(fn);
+	}
+
+	std::cout << "\nfiles" << std::endl;
+	for (int i = 0; i < 7; i++) {
+		std::cout << i << "#" << filesname[i].size() << std::endl;
+	}
+
 	//mtcnn config
-	vector<string> mtcnn_model_file = {
+	std::vector<std::string> mtcnn_model_file = {
 		"model/det1.prototxt",
 		"model/det2.prototxt",
 		"model/det3.prototxt"
 	};
-	vector<string> mtcnn_trained_file = {
+	std::vector<std::string> mtcnn_trained_file = {
 		"model/det1.caffemodel",
 		"model/det2.caffemodel",
 		"model/det3.caffemodel"
@@ -97,7 +154,12 @@ QFaceGenerator::QFaceGenerator(QWidget *parent)
 		std::cout << "mobilenet" << std::endl;
 		scale = 0.017;
 		meanValue = { 103.94f, 116.78f, 123.68f };
-		expressionModel = std::make_shared<ExpressionModel>("model/depthwise_mobileNet.prototxt", "model/mobileNet__iter_4000.caffemodel");
+		expressionModel = std::make_shared<ExpressionModel>("model/depthwise_mobileNet.prototxt", "model/mobileNet__iter_8000.caffemodel");
+	}else if (choose_model == 2) {
+		std::cout << "lightcnn" << std::endl;
+		scale = 0.0078125f / 2;
+		meanValue = { 0.0f, 0.0f, 0.0f };
+		expressionModel = std::make_shared<ExpressionModel>("model/lightCNN_deploy.prototxt", "model/lightCNN__iter_6000.caffemodel");
 	}
 
 	//set Model params
@@ -123,145 +185,154 @@ QFaceGenerator::QFaceGenerator(QWidget *parent)
 	cv::Mat frame;
 	while (true) {
 		expressionCapture >> frame;
-		cv::resize(frame, frame, cv::Size(frame.cols * 2, frame.rows * 2));
+	//	//cv::resize(frame, frame, cv::Size(frame.cols * 2, frame.rows * 2));
+	//for (int exp = 0; exp < 7; exp++)
+		//for (std::string img_name : filesname[exp]) {
+			//frame = cv::imread(test_img_path + std::to_string(exp) + "/" + img_name);
 	//for (std::string img_name : test_img_list) {
-	//	frame = cv::imread(test_img_path + img_name);
-		if (!frame.empty()) {
-			//forward model
-			vector<cv::Rect> rectangles_p;
-			vector<float> confidences_p;
-			std::vector<std::vector<cv::Point>> landmark;
-			std::vector<float> feature;
-			
-			//detect face
-			clock_t m_start = clock();
-			mtcnn->minSize_ = min(frame.cols / 4, frame.rows / 4);
-			mtcnn->detection(frame, rectangles_p, confidences_p, landmark);
-			clock_t m_end = clock();
-			std::cout << "MTCNN：" << m_end - m_start << "ms" << std::endl;
-			int probe_face_num = rectangles_p.size();
-			
-			if (probe_face_num > 0) {
-				int max_bbx_idx = 0; //face detected
-
-				//select max bounding box face
-				for (int i = 0; i < probe_face_num; i ++)
-					if (rectangles_p[i].width * rectangles_p[i].height > rectangles_p[max_bbx_idx].width * rectangles_p[max_bbx_idx].height) {
-						max_bbx_idx = i;
-					}
-
-				//drwa bbx and landmark
-				for (int j = 0; j < 5; j++){
-					cv::circle(frame, landmark[max_bbx_idx][j], 2, CV_RGB(0, 255, 0));
-				}
-
-				cv::rectangle(
-					frame, 
-					cvPoint(rectangles_p[max_bbx_idx].x, rectangles_p[max_bbx_idx].y), 
-					cvPoint(rectangles_p[max_bbx_idx].x + rectangles_p[max_bbx_idx].width, rectangles_p[max_bbx_idx].y + rectangles_p[max_bbx_idx].height),
-					CV_RGB(255, 0, 0),
-					1
-				);
-
-				//aligncrop, feature extract, and get target feature
-				cv::Mat crop_img = fu::AlignCrop(frame, landmark[max_bbx_idx]);
-				clock_t e_start = clock();
-				expressionModel->Forward(crop_img, layerNames);
-				clock_t e_end = clock();
-				std::cout << "Expression Model：" << e_end - e_start << "ms" << std::endl;
-				std::unordered_map<std::string, vector<float>> features = expressionModel->getFeatures();
-				feature = features[target_layer];
-
-				//cout layers shape
-				//for (std::pair<std::string, vector<float>> p : features){
-				//	std::cout << p.first << " " << p.second.size() << std::endl;
-				//}
-
-				//cout target feature
-				//for (float f : feature){
-				//	std::cout << f << " ";
-				//}
-				//std::cout << std::endl;
-
-				//translate feature to Expression
-				std::string expression = expressionModel->getExpression(feature);
-				cv::putText(
-					frame,
-					expression,
-					cvPoint(rectangles_p[max_bbx_idx].x, rectangles_p[max_bbx_idx].y),
-					cv::FONT_HERSHEY_COMPLEX,
-					2, //font size
-					CV_RGB(0, 255, 0),
-					2, 8, 0
-				);
+	//		frame = cv::imread(test_img_path + "/" + img_name);
+			if (choose_model == 2) {
+				cvtColor(frame, frame, CV_BGR2GRAY);
 			}
-
-			//draw Expression hist base line
-			int drawMargin = frame.cols * 0.025;
-			int drawSize = frame.cols * 0.95;
-			int bottomEdge = frame.rows - 3 * drawMargin > 0 ? frame.rows - 3 * drawMargin : 0;
-			float histFontSize = frame.cols / (float)500;
-			int leftEdge = drawMargin < frame.cols ? drawMargin : frame.cols;
-			int rightEdge = drawSize + drawMargin < frame.cols ? drawSize + drawMargin : frame.cols;
-			//std::cout << " bottomEdge=" << bottomEdge << " leftEdge=" << leftEdge << " rightEdge=" << rightEdge << std::endl;
-			cv::line(frame, Point(leftEdge, bottomEdge), Point(rightEdge, bottomEdge), CV_RGB(10, 230, 10), 1);
+			if (!frame.empty()) {
+				//forward model
+				vector<cv::Rect> rectangles_p;
+				vector<float> confidences_p;
+				std::vector<std::vector<cv::Point>> landmark;
+				std::vector<float> feature;
 			
-			int expressionNum = expressionModel->getExpressionNum();
-			//if detected face, draw hist
-			if (feature.size() == expressionNum) {
-				int max_idx = 0;
-				//get max feature idx
-				for (int i = 0; i < expressionNum; i++) {
-					if (feature[i] > feature[max_idx]) {
-						max_idx = i;
+				//detect face
+				clock_t m_start = clock();
+				mtcnn->minSize_ = min(frame.cols / 8, frame.rows / 8);
+				mtcnn->detection(frame, rectangles_p, confidences_p, landmark);
+				clock_t m_end = clock();
+				std::cout << "MTCNN：" << m_end - m_start << "ms" << std::endl;
+				int probe_face_num = rectangles_p.size();
+			
+				if (probe_face_num > 0) {
+					int max_bbx_idx = 0; //face detected
+
+					//select max bounding box face
+					for (int i = 0; i < probe_face_num; i ++)
+						if (rectangles_p[i].width * rectangles_p[i].height > rectangles_p[max_bbx_idx].width * rectangles_p[max_bbx_idx].height) {
+							max_bbx_idx = i;
+						}
+
+					//drwa bbx and landmark
+					for (int j = 0; j < 5; j++){
+						cv::circle(frame, landmark[max_bbx_idx][j], 2, CV_RGB(0, 255, 0));
 					}
-				}
-				//blankLevel = blank width / retectanle width 
-				int blankLevel = 3;
-				//e = minum draw width
-				int e = drawSize / ((blankLevel + 1) * expressionNum);
-				for (int i = 0; i < expressionNum; i++) {
-					cv::Scalar drawColor = CV_RGB(10, 245, 10); //green
-					if (i == max_idx) {
-						drawColor = CV_RGB(245, 10, 10); // max red
-					}
+
 					cv::rectangle(
-						frame,
-						cvPoint((blankLevel + 1) * e * i + leftEdge, bottomEdge - feature[i] * 100),
-						cvPoint((blankLevel + 1) * e * i + e + leftEdge, bottomEdge),
-						drawColor,
-						-1 //fill
+						frame, 
+						cvPoint(rectangles_p[max_bbx_idx].x, rectangles_p[max_bbx_idx].y), 
+						cvPoint(rectangles_p[max_bbx_idx].x + rectangles_p[max_bbx_idx].width, rectangles_p[max_bbx_idx].y + rectangles_p[max_bbx_idx].height),
+						CV_RGB(255, 0, 0),
+						1
 					);
+
+					//aligncrop, feature extract, and get target feature
+					cv::Mat crop_img = fu::AlignCrop(frame, landmark[max_bbx_idx]);
+					//center crop resize to 256 and crop 224
+					cv::resize(crop_img, crop_img, cv::Size(144, 144));
+					crop_img = crop_img(cv::Rect(8, 8, 128, 128));
+					clock_t e_start = clock();
+					expressionModel->Forward(crop_img, layerNames);
+					clock_t e_end = clock();
+					std::cout << "Expression Model：" << e_end - e_start << "ms" << std::endl;
+					std::unordered_map<std::string, vector<float>> features = expressionModel->getFeatures();
+					feature = features[target_layer];
+
+					//cout layers shape
+					//for (std::pair<std::string, vector<float>> p : features){
+					//	std::cout << p.first << " " << p.second.size() << std::endl;
+					//}
+
+					//cout target feature
+					//for (float f : feature){
+					//	std::cout << f << " ";
+					//}
+					//std::cout << std::endl;
+
+					//translate feature to Expression
+					std::string expression = expressionModel->getExpression(feature);
 					cv::putText(
 						frame,
-						expressionModel->getExpressionMap()[i],
-						cvPoint((blankLevel + 1) * e * i + leftEdge, bottomEdge + e),
+						expression,
+						cvPoint(rectangles_p[max_bbx_idx].x, rectangles_p[max_bbx_idx].y),
 						cv::FONT_HERSHEY_COMPLEX,
-						0.6, //font scale
-						CV_RGB(10, 245, 10),
+						2, //font size
+						CV_RGB(0, 255, 0),
 						2, 8, 0
 					);
 				}
+
+				//draw Expression hist base line
+				int drawMargin = frame.cols * 0.025;
+				int drawSize = frame.cols * 0.95;
+				int bottomEdge = frame.rows - 3 * drawMargin > 0 ? frame.rows - 3 * drawMargin : 0;
+				float histFontSize = frame.cols / (float)500;
+				int leftEdge = drawMargin < frame.cols ? drawMargin : frame.cols;
+				int rightEdge = drawSize + drawMargin < frame.cols ? drawSize + drawMargin : frame.cols;
+				//std::cout << " bottomEdge=" << bottomEdge << " leftEdge=" << leftEdge << " rightEdge=" << rightEdge << std::endl;
+				cv::line(frame, Point(leftEdge, bottomEdge), Point(rightEdge, bottomEdge), CV_RGB(10, 230, 10), 1);
+			
+				int expressionNum = expressionModel->getExpressionNum();
+				//if detected face, draw hist
+				if (feature.size() == expressionNum) {
+					int max_idx = 0;
+					//get max feature idx
+					for (int i = 0; i < expressionNum; i++) {
+						if (feature[i] > feature[max_idx]) {
+							max_idx = i;
+						}
+					}
+					//blankLevel = blank width / retectanle width 
+					int blankLevel = 3;
+					//e = minum draw width
+					int e = drawSize / ((blankLevel + 1) * expressionNum);
+					for (int i = 0; i < expressionNum; i++) {
+						cv::Scalar drawColor = CV_RGB(10, 245, 10); //green
+						if (i == max_idx) {
+							drawColor = CV_RGB(245, 10, 10); // max red
+						}
+						cv::rectangle(
+							frame,
+							cvPoint((blankLevel + 1) * e * i + leftEdge, bottomEdge - feature[i] * 100),
+							cvPoint((blankLevel + 1) * e * i + e + leftEdge, bottomEdge),
+							drawColor,
+							-1 //fill
+						);
+						cv::putText(
+							frame,
+							expressionModel->getExpressionMap()[i],
+							cvPoint((blankLevel + 1) * e * i + leftEdge, bottomEdge + e),
+							cv::FONT_HERSHEY_COMPLEX,
+							0.6, //font scale
+							CV_RGB(10, 245, 10),
+							2, 8, 0
+						);
+					}
+					//string result = (max_idx == exp) ? "true" : "false";
+					//cv::imwrite(test_result_path + std::to_string(exp) + "/" + result + "_" + img_name, frame);
+					//cv::imwrite(test_result_path + "/lightcnn6000_" + img_name, frame);
+					//cout << test_result_path + std::to_string(exp) + "/" + result + "_" + img_name << endl;
+				}else {
+					//failed to detect faces
+					//cv::imwrite(test_result_path + std::to_string(exp) + "/df_" + img_name, frame);
+				}
+
+				//show frame
+				cv::imshow("expressionCapture", frame);
+
+			}else {
+				std::cout << "[error] qfacegenerator.cpp: line 91, empty frame." << std::endl;
 			}
 
-			//show frame
-			cv::imshow("expressionCapture", frame);
-			std::string save_name;
-			if (choose_model == 0){
-				save_name = "-vggnet/";
-			}else if (choose_model == 1) {
-				save_name = "-mobilenet/";
+			if (waitKey(frame_internal) > 0) {
+				break;
 			}
-			//cv::imwrite(test_result_path + save_name + img_name, frame);
-
-		}else {
-			std::cout << "[error] qfacegenerator.cpp: line 91, empty frame." << std::endl;
 		}
-
-		if (waitKey(frame_internal) > 0) {
-			break;
-		}
-	}
 
 	////test bi-resize mothod
 	//cv::Mat inputImg, biResizeImg1, biResizeImg2, biResizeImg3;

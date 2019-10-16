@@ -36,13 +36,16 @@ std::unordered_map<std::string, std::vector<float>> ExpressionModel::Forward(cv:
 	caffe::TransformationParameter tp;
 	tp.set_scale(this->scale);
 	tp.add_mean_value(this->meanValue[0]);
-	tp.add_mean_value(this->meanValue[1]);
-	tp.add_mean_value(this->meanValue[2]);
+	if (img.channels() == 3) {
+		tp.add_mean_value(this->meanValue[1]);
+		tp.add_mean_value(this->meanValue[2]);
+	}
 
 	//trans Mat to Caffe-Need-Type (#define USE_OPENCV)
 	caffe::DataTransformer<float> dt(tp, caffe::Phase::TEST);
 	cv::Mat tImg;
 	//resize to input layer size
+	std::cout << "img channels = " << img.channels() << std::endl;
 	cv::resize(img, tImg, cv::Size(input_layer->width(), input_layer->height()));
 	dt.Transform(tImg, input_layer);
 
